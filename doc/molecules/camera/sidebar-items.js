@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["RotationCamera","Rotation camera that always looks at the centre of the scene and rotates around It."]],"trait":[["Camera","General trait for any implementation of camera."]]});

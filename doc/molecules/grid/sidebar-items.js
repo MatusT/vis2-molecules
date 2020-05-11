@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["VoxelGrid","Voxel grid. Contains information about AABB of the scene and GPU buffers containing the voxel grid in flat format for GPU."],["VoxelPointer","Pointer to block of memory containing one grid cell of voxel grid."]]});

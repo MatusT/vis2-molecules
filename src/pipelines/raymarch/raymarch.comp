@@ -1,0 +1,383 @@
+#version 450
+
+layout(local_size_x = 32, local_size_y = 32) in;
+
+struct VoxelPointer {
+    int start;
+    int len;
+};
+
+layout(set = 0, binding = 0, std140) uniform Globals {
+    // Camera
+    mat4 projection;
+    vec4 camera_origin;
+
+    // Bounding Box
+    vec3 bb_min;
+    vec3 bb_max;
+    vec3 bb_diff;
+    vec3 bb_size;
+    vec2 window_size;
+    float voxel_length;    
+
+    // Additional Globals
+    float time;
+    float solvent_radius;
+    int max_neighbours;
+    int save;
+}
+globals;
+
+layout(set = 0, binding = 1, rgba32f) uniform image2D output_image;
+
+layout(set = 0, binding = 2, std430) readonly buffer AtomPositions { vec4 atom_positions[]; };
+layout(set = 0, binding = 3, std430) readonly buffer VoxelPointers { int voxel_pointers[]; };
+
+layout(set = 0, binding = 4, r32f) uniform image2D sdf_accum;
+layout(set = 0, binding = 5, rgba32f) uniform image2D gbuffer_positions;
+layout(set = 0, binding = 6, rgba32f) uniform image2D gbuffer_normals;
+
+const int CLOSEST_MAX_LENGTH = 45;
+
+const float near = 0.01;
+const float far = 100.0;
+float LinearizeDepth(float depth) 
+{
+    return (2.0 * near * far) / (far + near - depth * (far - near));    
+}
+
+// Signed distance function of a sphere:
+// f(p) > 0 interior
+// f(p) = 0 boundary
+// f(p) < 0 exterior
+vec4 f(const vec4 atom, const vec3 p) {
+    const vec3 c = atom.xyz;
+    const float radius = atom.w;
+    const vec3 n = p - c;
+
+    return vec4(n, radius - length(n));
+}
+
+// Same as 'f' but extended with a solvent radius
+vec4 g(const vec4 atom, const vec3 p) {
+    const vec4 atom_f = f(atom, p);
+    return vec4(atom_f.xyz, atom_f.w + globals.solvent_radius);
+}
+
+// Max function of 2 SDF spheres
+vec4 max2_f(const vec4 sphere1, const vec4 sphere2, const vec3 p) {
+    const vec4 f1 = f(sphere1, p);
+    const vec4 f2 = f(sphere2, p);
+
+    if (f1.w > f2.w) {
+        return f1;
+    } else {
+        return f2;
+    }
+}
+
+// Max function of 3 SDF spheres
+vec4 max3_f(const vec4 sphere1, const vec4 sphere2, const vec4 sphere3, const vec3 p) {
+    const vec4 f1 = f(sphere1, p);
+    const vec4 f2 = f(sphere2, p);
+    const vec4 f3 = f(sphere3, p);
+
+    if (f1.w > f2.w) {
+        if (f1.w > f3.w) {
+            return f1;
+        } else {
+            return f3;
+        }
+    } else {
+        if (f2.w > f3.w) {
+            return f2;
+        } else {
+            return f3;
+        }
+    }
+}
+
+// Gradient of a signed distance function 'g' (normal vector)
+vec3 nabla_g(const vec4 atom, const vec3 p) { return normalize(atom.xyz - p); }
+
+// Newton method to compute toroidal signed distance function of two atoms
+vec3 toroidal_newton(const vec4 atom1, const vec4 atom2, const vec3 p) {
+    vec3 x_n = p;
+    for (int i = 0; i < 7; i++) {
+        const float g1 = g(atom1, x_n).w;
+        const float g2 = g(atom2, x_n).w;
+        const vec3 v = vec3(g1, g2, 0.0);
+
+        const vec3 ng1 = nabla_g(atom1, x_n);
+        const vec3 ng2 = nabla_g(atom2, x_n);
+        const mat3 M = inverse(transpose(mat3(ng1, ng2, cross(ng1, ng2))));
+
+        x_n = x_n - (M * v);
+    }
+
+    return x_n;
+}
+
+// Toroidal signed distance function of two atoms
+vec4 toroidal_sdf(const vec4 atom1, const vec4 atom2, const vec3 p) {
+    const float R = globals.solvent_radius;
+
+    const float g1 = g(atom1, p).w;
+    const float g2 = g(atom2, p).w;
+
+    const vec3 ng1 = nabla_g(atom1, p);
+    const vec3 ng2 = nabla_g(atom2, p);
+
+    const vec3 p1 = p - g1 * ng1;
+    const vec3 p2 = p - g2 * ng2;
+
+    const bool predicate = g(atom1, p2).w > 0.0 && g(atom2, p1).w > 0.0;
+
+    if (predicate) {
+        const vec3 x_12 = toroidal_newton(atom1, atom2, p);
+        return vec4(normalize(x_12 - p), distance(p, x_12) - R);
+    } else {
+        return max(f(atom1, p), f(atom2, p));
+    }
+}
+
+// Newton method to compute spherical triangle signed distance function of three atoms
+vec3 spherical_newton(const vec4 atom1, const vec4 atom2, const vec4 atom3, const vec3 p) {
+    vec3 x_n = p;
+    for (int i = 0; i < 7; i++) {
+        const float g1 = g(atom1, x_n).w;
+        const float g2 = g(atom2, x_n).w;
+        const float g3 = g(atom3, x_n).w;
+        const vec3 v = vec3(g1, g2, g3);
+
+        const vec3 ng1 = nabla_g(atom1, x_n);
+        const vec3 ng2 = nabla_g(atom2, x_n);
+        const vec3 ng3 = nabla_g(atom3, x_n);
+        const mat3 M = inverse(transpose(mat3(ng1, ng2, ng3)));
+
+        x_n = x_n - (M * v);
+    }
+
+    return x_n;
+}
+
+// Spherical triangle signed distance function of three atoms
+vec4 spherical_sdf(const vec4 atom1, const vec4 atom2, const vec4 atom3, const vec3 p) {
+    const float R = globals.solvent_radius;
+
+    const float g1 = g(atom1, p).w;
+    const float g2 = g(atom2, p).w;
+    const float g3 = g(atom3, p).w;
+
+    const vec3 ng1 = nabla_g(atom1, p);
+    const vec3 ng2 = nabla_g(atom2, p);
+    const vec3 ng3 = nabla_g(atom3, p);
+
+    const vec3 p1 = p - g1 * ng1;
+    const vec3 p2 = p - g2 * ng2;
+
+    const vec3 x_12 = toroidal_newton(atom1, atom2, p);
+    const vec3 x_13 = toroidal_newton(atom1, atom3, p);
+    const vec3 x_23 = toroidal_newton(atom2, atom3, p);
+    const bool predicate_12 = g(atom1, p).w >= -R && g(atom2, p).w >= -R && g(atom3, x_12).w > 0;
+    const bool predicate_13 = g(atom1, p).w >= -R && g(atom3, p).w >= -R && g(atom2, x_13).w > 0;
+    const bool predicate_23 = g(atom2, p).w >= -R && g(atom3, p).w >= -R && g(atom1, x_23).w > 0;
+    const bool predicate_123 = predicate_12 && predicate_13 && predicate_23;
+
+    if (predicate_123) {
+        const vec3 x_123 = spherical_newton(atom1, atom2, atom3, p);
+        return vec4(normalize(x_123 - p), distance(p, x_123) - R);
+    } else {
+        return max(max(f(atom1, p), f(atom2, p)), f(atom3, p));
+    }
+}
+
+// Returns the intersection of a ray and an AABB
+vec2 intersect_AABB(const vec3 origin, const vec3 direction, const vec3 bb_min, const vec3 bb_max) {
+    const vec3 t_min = (bb_min - origin) / direction;
+    const vec3 t_max = (bb_max - origin) / direction;
+
+    const vec3 t1 = min(t_min, t_max);
+    const vec3 t2 = max(t_min, t_max);
+
+    const float t_near = max(max(t1.x, t1.y), t1.z);
+    const float t_far = min(min(t2.x, t2.y), t2.z);
+
+    return vec2(t_near, t_far);
+}
+
+// Calculates the signed distance at a given position
+vec4 sdf(vec3 position) {
+    float d = -2.0;
+    vec3 normal = vec3(0.0);
+
+    // 1. Find corresponding cell in the grid
+    const vec3 center_grid_position_vec3 = (position - globals.bb_min) / globals.voxel_length;
+    const ivec3 center_grid_position_ivec3 = ivec3(floor(center_grid_position_vec3));
+
+    vec4 atoms[CLOSEST_MAX_LENGTH + 1];
+    float atoms_d[CLOSEST_MAX_LENGTH + 1];
+    int atoms_length = 0;
+
+    // 2. Iterate over 3^3 neighbourhood
+    const int width = int(globals.bb_size.x);
+    const int height = int(globals.bb_size.y);
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+                const ivec3 grid_position = center_grid_position_ivec3 + ivec3(x, y, z);
+
+                if (any(greaterThanEqual(grid_position, ivec3(globals.bb_size))) || any(lessThan(grid_position, ivec3(0)))) {
+                    continue;
+                }
+
+                // Find the index of the voxel
+                const int index = (width * height * grid_position.z) + (width * grid_position.y) + grid_position.x;
+                VoxelPointer pointer = VoxelPointer(voxel_pointers[index * 2], voxel_pointers[index * 2 + 1]);
+
+                // Go over the atoms in the voxel grid cell
+                for (int atom_index = 0; atom_index < pointer.len; atom_index++) {
+                    const vec4 atom = atom_positions[pointer.start + atom_index];
+                    const vec4 f = f(atom, position);
+                    if (f.w > d) {
+                        d = f.w;
+                        normal = f.xyz;
+                    }
+
+                    // If they are close enough to form a surface
+                    if (distance(atom.xyz, position) < 2.0 + globals.solvent_radius) {
+                        // Unless the array of neighbouring atoms is overflowed,
+                        // the new atom is appended
+                        if (atoms_length < globals.max_neighbours) {
+                            atoms[atoms_length] = atom;
+                            atoms_d[atoms_length] = f.w;
+                            atoms_length = atoms_length + 1;
+                        // Otherwise we sort it into the correct position
+                        } else {
+                            atoms[globals.max_neighbours] = atom;
+                            atoms_d[globals.max_neighbours] = f.w;
+
+                            // Insert sort
+                            for (int i = 1; i < globals.max_neighbours + 1; i++) {
+                                vec4 key_atom = atoms[i];
+                                float key_d = atoms_d[i];
+                                int j = i - 1;
+
+                                while (j >= 0 && atoms_d[j] > key_d) {
+                                    atoms[j + 1] = atoms[j];
+                                    atoms_d[j + 1] = atoms_d[j];
+
+                                    j = j - 1;
+                                }
+                                atoms[j + 1] = key_atom;
+                                atoms_d[j + 1] = key_d;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Loop through all tuples and triples that can form a surface
+    for (int i = 0; i < atoms_length; i++) {
+        for (int j = i + 1; j < atoms_length; j++) {
+            vec4 toroidal_patch = toroidal_sdf(atoms[i], atoms[j], position);
+            if (toroidal_patch.w > d) {
+                d = toroidal_patch.w;
+                normal = toroidal_patch.xyz;
+            }
+
+            for (int k = j + 1; k < atoms_length; k++) {
+                const vec4 spherical_patch = spherical_sdf(atoms[i], atoms[j], atoms[k], position);
+                if (spherical_patch.w > d) {
+                    d = spherical_patch.w;
+                    normal = spherical_patch.xyz;
+                }
+            }
+        }
+    }
+
+    return vec4(normal, d);
+}
+
+// Returns a camera matrix to calculate the outgoing ray.
+mat3 camera(vec3 ray_origin) {
+    vec3 cw = -normalize(ray_origin);
+    const vec3 up = vec3(0.0, 1.0, 0.0);
+    vec3 cu = normalize(cross(cw, up));
+    vec3 cv = (cross(cu, cw));
+    return mat3(cu, cv, cw);
+}
+
+void main() {
+    // Constants
+    const float width = globals.window_size.x;
+    const float height = globals.window_size.y;
+
+    if (gl_GlobalInvocationID.x >= width || gl_GlobalInvocationID.y >= height) {
+        return;
+    }
+
+    const ivec2 pixel_coordinates = ivec2(gl_GlobalInvocationID.xy);
+
+    const float fov = 1.57079633;
+    const float scale = tan(fov * 0.5);
+    const float aspect_ratio = width / height;
+
+    // Calculate pixel position and direction vector
+    const float i = float(pixel_coordinates.x);
+    const float j = float(pixel_coordinates.y);
+    const float x = (2 * ((i + 0.5) / width) - 1) * aspect_ratio * scale;
+    const float y = (1 - 2 * ((j + 0.5) / height) * scale);
+
+    const vec3 ray_origin = vec3(globals.camera_origin);    
+    const vec3 ray_direction = camera(ray_origin) * normalize(vec3(x, y, 1.0));
+
+    const vec3 light_dir = -normalize(ray_origin);
+
+    // Ray-march
+    vec4 pixel = vec4(1.0);
+    // Find the intersection with AABB and start at least from there
+    const vec2 bb_intersection = intersect_AABB(ray_origin, ray_direction, globals.bb_min, globals.bb_max);
+    // Start from the last uninterrupted frame
+    const float t_previous = imageLoad(sdf_accum, pixel_coordinates).r;
+    float t = max(t_previous, bb_intersection.x);
+    vec3 position = ray_origin + t * ray_direction;
+    vec3 normal = vec3(0.0);
+    if (t < bb_intersection.y) {
+        float d = -2.0;
+
+        for (int s = 0; s < 8; s++) {
+            if (t > bb_intersection.y) {
+                break;
+            }
+
+            position = ray_origin + t * ray_direction;
+
+            vec4 res = sdf(position);
+            d = max(res.w, d);
+
+            if (d > -0.001) {                
+                normal = -normalize(res.xyz);
+                const float diffuse = max(dot(normal, light_dir), 0.0);
+                pixel = vec4(diffuse, diffuse, diffuse, 1.0);
+                break;
+            }
+
+            t -= d;
+        }
+
+        imageStore(sdf_accum, pixel_coordinates, vec4(t, 0.0, 0.0, 0.0));
+    }
+    
+    const vec4 tmp = (globals.projection * vec4(camera(ray_origin) * position, 1.0));
+    const float depth = LinearizeDepth((tmp / tmp.w).z);
+
+    imageStore(output_image, pixel_coordinates, pixel);
+
+    imageStore(sdf_accum, pixel_coordinates, vec4(t, 0.0, 0.0, 0.0));
+
+    imageStore(gbuffer_positions, pixel_coordinates, vec4(position, depth));
+    imageStore(gbuffer_normals, pixel_coordinates, vec4(normal, 1.0));
+}

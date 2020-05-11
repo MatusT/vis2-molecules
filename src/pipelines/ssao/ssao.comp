@@ -1,0 +1,99 @@
+#version 460 core
+
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(set = 0, binding = 0, std140) uniform RaymarchGlobals {
+    // Camera
+    mat4 projection;
+    vec4 camera_origin;
+
+    // Bounding Box
+    vec3 bb_min;
+    vec3 bb_max;
+    vec3 bb_diff;
+    vec3 bb_size;
+    vec2 window_size;
+    float voxel_length;    
+
+    // Additional Globals
+    float time;
+    float solvent_radius;
+    int max_neighbours;
+    int save;
+}
+raymarch_globals;
+
+layout(set = 0, binding = 1, std140) uniform SsaoGlobals {
+    mat4 projection;
+    vec4 samples[64];
+    vec4 noise[4][4];
+}
+ssao_globals;
+
+layout(set = 0, binding = 2) uniform texture2D g_positions_texture;
+layout(set = 0, binding = 3) uniform sampler g_positions_sampler;
+layout(set = 0, binding = 4) uniform texture2D g_normals_texture;
+layout(set = 0, binding = 5) uniform sampler g_normals_sampler;
+
+layout(set = 0, binding = 6, rgba32f) uniform image2D output_image;
+
+const float radius = 1.0;
+const float bias = 0.15;
+const float intensity = 1.0;
+const float scale = 1.0;
+
+float calculate_ao(vec2 tcoord, vec2 uv, vec3 p, vec3 cnorm) {
+    const vec3 diff = texture(sampler2D(g_positions_texture, g_positions_sampler), tcoord + uv).xyz - p;
+    const vec3 v = normalize(diff);
+    const float d = length(diff) * scale;
+    return max(0.0, dot(cnorm, v) - bias) * (1.0 / (1.0 + d)) * intensity;
+}
+
+void main() {
+    //
+    const uint width = uint(raymarch_globals.window_size.x);
+    const uint height = uint(raymarch_globals.window_size.y);
+
+    if (gl_GlobalInvocationID.x >= width || gl_GlobalInvocationID.y >= height) {
+        return;
+    }
+
+    const ivec2 pixel_coordinates = ivec2(gl_GlobalInvocationID.xy);
+    const vec2 uv = vec2(pixel_coordinates) / raymarch_globals.window_size;
+
+    // Input
+    const vec3 position = texture(sampler2D(g_positions_texture, g_positions_sampler), uv).xyz;
+    vec3 normal = texture(sampler2D(g_normals_texture, g_normals_sampler), uv).xyz;
+
+    if (normal == vec3(0.0)) {
+        imageStore(output_image, pixel_coordinates, vec4(1.0));
+        return;
+    }
+    normal = normalize(normal);
+
+    
+    const vec2 random_vector = normalize(ssao_globals.noise[width % 4][height % 4].xy);
+
+    const vec2 vec[4] = {vec2(1, 0), vec2(-1, 0), vec2(0, 1), vec2(0, -1)};
+
+    float ao = 0.0f;
+    float rad = radius / position.z;
+
+    int iterations = 4;
+    for (int j = 0; j < iterations; ++j) {
+        vec2 coord1 = reflect(vec[j], random_vector) * rad;
+        vec2 coord2 = vec2(coord1.x * 0.707 - coord1.y * 0.707, coord1.x * 0.707 + coord1.y * 0.707);
+
+        ao += calculate_ao(uv, coord1 * 0.25, position, normal);
+        ao += calculate_ao(uv, coord2 * 0.5, position, normal);
+        ao += calculate_ao(uv, coord1 * 0.75, position, normal);
+        ao += calculate_ao(uv, coord2, position, normal);
+    }
+
+    ao /= float(iterations) * 4.0;
+    ao = 0.9 * clamp(1.0 - ao, 0.0, 1.0);
+
+    vec4 color = imageLoad(output_image, pixel_coordinates);
+
+    imageStore(output_image, pixel_coordinates, vec4(ao * color.xyz, 1.0));
+}
