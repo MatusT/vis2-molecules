@@ -57,7 +57,7 @@ fn main() {
     let mut ui = ui::UserInterface::new();
 
     let mut ui_on = true;
-    
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {

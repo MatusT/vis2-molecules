@@ -63,7 +63,7 @@ pub struct Application {
     mouse_pressed: bool,
     mouse_position: winit::dpi::PhysicalPosition<f64>,
 
-    sampler: wgpu::Sampler
+    sampler: wgpu::Sampler,
 }
 
 impl Application {
@@ -127,6 +127,7 @@ impl Application {
             max_neighbours: 15,
             time: 0.0,
             save: 0,
+            max_steps: 8,
             ..Default::default()
         };
         let raymarch_globals_buffer = device.create_buffer_with_data(
@@ -338,6 +339,9 @@ impl Application {
             },
             wgpu::Extent3d { width, height, depth: 1 },
         );
+
+        self.raymarch_globals.window_size = [width as f32, height as f32];
+
         self.queue.submit(&[encoder.finish()]);
     }
 
@@ -615,6 +619,16 @@ impl Application {
 
     pub fn set_max_neighbours(&mut self, max_neighbours: i32) {
         self.raymarch_globals.max_neighbours = max_neighbours;
+        self.update_raymarch_globals();
+        self.camera_changed = true;
+    }
+
+    pub fn max_steps(&self) -> i32 {
+        self.raymarch_globals.max_steps
+    }
+
+    pub fn set_max_steps(&mut self, max_steps: i32) {
+        self.raymarch_globals.max_steps = max_steps;
         self.update_raymarch_globals();
         self.camera_changed = true;
     }

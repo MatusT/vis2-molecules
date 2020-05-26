@@ -25,6 +25,7 @@ layout(set = 0, binding = 0, std140) uniform Globals {
     float solvent_radius;
     int max_neighbours;
     int save;
+    int max_steps;
 }
 globals;
 
@@ -348,7 +349,7 @@ void main() {
     if (t < bb_intersection.y) {
         float d = -2.0;
 
-        for (int s = 0; s < 8; s++) {
+        for (int s = 0; s < globals.max_steps; s++) {
             if (t > bb_intersection.y) {
                 break;
             }
@@ -358,7 +359,7 @@ void main() {
             vec4 res = sdf(position);
             d = max(res.w, d);
 
-            if (d > -0.001) {                
+            if (d > -0.001) {
                 normal = -normalize(res.xyz);
                 const float diffuse = max(dot(normal, light_dir), 0.0);
                 pixel = vec4(diffuse, diffuse, diffuse, 1.0);

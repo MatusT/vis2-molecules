@@ -27,6 +27,7 @@ pub struct RaymarchGlobals {
     pub solvent_radius: f32,
     pub max_neighbours: i32,
     pub save: i32,
+    pub max_steps: i32,
 }
 
 unsafe impl bytemuck::Zeroable for RaymarchGlobals {}
@@ -49,12 +50,13 @@ impl Default for RaymarchGlobals {
             padd4: 0.0,
             window_size: [0.0; 2],
 
-            voxel_length: 0.0,           
+            voxel_length: 0.0,
 
             time: 0.0,
             solvent_radius: 0.0,
             max_neighbours: 0,
             save: 0,
+            max_steps: 0,
         }
     }
 }
