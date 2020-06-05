@@ -1,15 +1,24 @@
+//!
+//! Description of the UI.
+//!
+
+
 use crate::application::*;
 
 use iced_wgpu::Renderer;
 use iced_winit::{slider, Column, Container, Element, Length, Slider, Space, Text};
 
+/// Events that can be fired by the UI
 #[derive(Debug, Clone, Copy)]
 pub enum Message {
+    /// Called when solvent radius is adjusted
     SolventRadiusChanged(f32),
+    /// Called when number of maximum neighbours is adjusted
     MaxNeighboursChanged(f32),
+    /// Called when maximum number of steps per frame is adjusted
     MaxStepsChanged(f32),
 }
-
+/// State of the user interface 
 pub struct UserInterface {
     solvent_radius_slider: slider::State,
     max_neighbours_slider: slider::State,
@@ -17,6 +26,7 @@ pub struct UserInterface {
 }
 
 impl UserInterface {
+    /// Initializes default state of the UI
     pub fn new() -> Self {
         Self {
             solvent_radius_slider: iced_wgpu::slider::State::new(),
@@ -25,6 +35,7 @@ impl UserInterface {
         }
     }
 
+    /// Processes a fired event
     pub fn update(&self, message: Message, application: &mut Application) {
         match message {
             Message::SolventRadiusChanged(solvent_radius) => {
@@ -39,6 +50,7 @@ impl UserInterface {
         };
     }
 
+    /// Returns the UI based on a state
     pub fn view<'a>(&'a mut self, application: &Application) -> Element<'a, Message, Renderer> {
         Container::new(
             Column::new()

@@ -13,6 +13,7 @@ pub trait RoundToMultiple {
 }
 
 impl RoundToMultiple for f32 {
+    /// Takes a floating number and rounds It to a `multiple`. The rounding is away from the zero.
     fn round_to_multiple(&self, multiple: i32) -> f32 {
         let number = *self;
 

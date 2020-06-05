@@ -9,7 +9,6 @@ edition = "2018"
 [dependencies]
 wgpu = "0.5"
 winit = "0.22"
-# glsl-to-spirv = "0.1"
 lib3dmol = "0.3.2"
 nalgebra-glm = "0.7.0"
 rand = "0.7"

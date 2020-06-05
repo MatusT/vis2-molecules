@@ -24,8 +24,10 @@ fn main() {
         event_loop::{ControlFlow, EventLoop},
     };
 
+    // Create event loop
     let event_loop = EventLoop::new();
 
+    // Create window and a rendering surface
     let (window, size, surface) = {
         let window = winit::window::Window::new(&event_loop).unwrap();
         window.set_title("Implicit Representation of Molecular Surfaces");
@@ -35,8 +37,10 @@ fn main() {
         (window, size, surface)
     };
 
+    // Initialize the application itself
     let mut application = futures::executor::block_on(application::Application::new(size.width, size.height, &surface));
 
+    // Create the swapchain
     let sc_format = wgpu::TextureFormat::Bgra8UnormSrgb;
     let mut sc_desc = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,

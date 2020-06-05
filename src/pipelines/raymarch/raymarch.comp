@@ -307,7 +307,7 @@ mat3 camera(vec3 ray_origin) {
     vec3 cw = -normalize(ray_origin);
     const vec3 up = vec3(0.0, 1.0, 0.0);
     vec3 cu = normalize(cross(cw, up));
-    vec3 cv = (cross(cu, cw));
+    vec3 cv = cross(cu, cw);
     return mat3(cu, cv, cw);
 }
 

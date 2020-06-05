@@ -2,49 +2,46 @@
 <html>
 
 <head>
-    <style>
-        body {
-            background-color: #f2f6f7;
-        }
 
-        h1 {
-            font-family: "Verdana", Geneva, sans-serif;
-            font-size: 20px
-        }
-
-        h2 {
-            font-family: "Verdana", Geneva, sans-serif;
-            font-size: 30px
-        }
-
-        p {
-            font-family: "Verdana", Geneva, sans-serif;
-        }
-
-        li {
-            font-family: "Verdana", Geneva, sans-serif;
-        }
-        article {
-            max-width: 1280px;
-            margin: 0 auto;
-        }
-    </style>
     <meta name="author" content="Matúš Talčík">
     <title>Implicit Representation of Molecular
         Surfaces</title>
     <meta name="title" content="Implicit Representation of Molecular
     Surfaces">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/kognise/water.css@latest/dist/light.min.css">
+    <style>
+        body {
+            max-width: 1024px;
+        }
+
+        .image {
+            width: 50%;
+        }
+
+        #images-wrapper {
+            display: flex;
+            align-items: center;
+        }
+
+        header {
+            text-align: center;
+        }
+    </style>
 </head>
 
 <body>
     <article>
         <header>
             <h1><strong>Implicit Representation of Molecular
-                Surfaces</strong></h1>
+                    Surfaces</strong></h1>
+            <h2>Matúš Talčík</h2>
         </header>
 
-        <img src="../media/1.png" alt="Italian Trulli" width="600">
-        <img src="../media/2.png" alt="Italian Trulli" width="600">
+        <section id="images-wrapper">
+            <div class="image"><img src="../media/screenshot.png" alt="Italian Trulli"></div>
+            <div class="image"><img src="../media/2.png" alt="Italian Trulli"></div>
+        </section>
 
         <h1><strong>Introduction </strong></h1>
         <p>This is an implementation of paper <a
@@ -79,19 +76,42 @@
 
         <h1><strong>Controls</strong></h1>
         <ul>
-            <li>Mouse Wheel (scroll): Zoom In/Out</li>
-            <li>Left Mouse Key (hold) + Move mouse: rotate over the molecule</li>
+            <li><strong>Mouse Wheel (scroll)</strong>: zoom in/out</li>
+            <li><strong>Left Mouse Key (hold) + Move mouse</strong>: rotate over the molecule</li>
+            <li><strong>U</strong>: toggle the UI off/on</li>
         </ul>
 
         <h1><strong>Data Sets </strong></h1>
-        <p>The files containing molecules are described in the .pdb format. You can find many of them at <a href="https://www.rcsb.org/">Protein Data Bank</a></p>
+        <p>The files containing molecules are described in the .pdb format. You can find many of them at <a
+                href="https://www.rcsb.org/">Protein Data Bank</a></p>
         <p>Some of the molecules are downloaded for you in the <strong>pdb</strong> folder.</p>
+
+        <h1><strong>Building</strong></h1>
+        <p>
+            In order to build the project you need a C++ compiler and a Rust compiler with cargo tool. The easiest way
+            to obtain the latter is through <a href="https://rustup.rs/">rustup</a>. Just download the installer and run
+            it.
+        </p>
+
+        <p>
+            To build the code, navigate to the directory of the project and run command: 
+            <code>
+                cargo build
+            </code>
+            To directly launch the program (including the compilation) run command:
+            <code>
+                cargo run
+            </code>
+            In both cases you can append <code>--release</code> flag to build/run the optimized version of the program.
+        </p>
 
         <h1><strong>Links: </strong></h1>
         <ul>
             <li><a href="../bin/molecules.exe">Binaries</a></li>
             <li><a href="../doc/molecules/index.html">Documentation</a></li>
-            <li><a href="https://www.researchgate.net/publication/254026672_Implicit_Representation_of_Molecular_Surfaces">Original paper</a></li>
+            <li><a
+                    href="https://www.researchgate.net/publication/254026672_Implicit_Representation_of_Molecular_Surfaces">Original
+                    paper</a></li>
         </ul>
     </article>
 </body>
